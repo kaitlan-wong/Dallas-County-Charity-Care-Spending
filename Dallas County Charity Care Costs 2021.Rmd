@@ -1,0 +1,152 @@
+---
+title: "Dallas County Charity Care Costs 2021"
+author: "Kaitlan Wong"
+date: "2024-01-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#Load libraries 
+library(dplyr)
+library(tidyverse)
+library(knitr)
+library(readr)
+library(haven)
+library(foreign)
+library(purrr)
+
+```
+
+
+```{r}
+# Read DSHS Section E financial and utilization data
+dshs_E_21 <- read.dbf("HS21FINAL2_7\\HS21E1revised12_17.dbf") 
+
+# Read DSHS facility information data
+dshs_dir_21 <- read.dbf("HS21FINAL2_7\\HS21DIR.dbf") 
+
+# Read DSHS Section I Inpatient and Outpatient Bad Debt and Charity Charges Data
+dshs_I_21 <- read.dbf("HS21FINAL2_7\\HS21HJ.dbf") 
+
+```
+
+
+```{r}
+# Confirm the Section E data set has the variables we need (Other Operating Expenses and Total Expenses less bad debt)
+# See code book to verify (Section E for 2017-2021 surveys)
+
+# View all data in new tab
+view(dshs_E_21)
+
+view(dshs_dir_21)
+
+```
+
+
+```{r}
+# Join all data frames in list
+list_hospitals = list(dshs_dir_21,dshs_E_21,dshs_I_21)
+
+# Join multiple data frames
+combined_hospital_data <- list_hospitals %>% 
+  reduce(inner_join, by='FID')
+
+```
+
+
+```{r}
+# Filter for Dallas County
+hospital_data_21 <- combined_hospital_data %>% 
+  filter(COUNTY == "DALLAS")
+
+```
+
+
+```{r}
+
+# Convert financial variables to numeric
+transform(hospital_data_21, E3M1 = as.numeric(E3M1))
+transform(hospital_data_21, E4C1 = as.numeric(E4C1))
+transform(hospital_data_21, E3C1 = as.numeric(E3C1))
+transform(hospital_data_21, E5A = as.numeric(E5A))
+transform(hospital_data_21, E5B1 = as.numeric(E5B1))
+transform(hospital_data_21, I2C = as.numeric(I2C))
+
+# Calculate cost-to-charge-ratio and assign to new variable
+hospital_data_21$ctc_ratio <- 
+  hospital_data_21$E3M1 / (hospital_data_21$E4C1 + hospital_data_21$E3C1)
+
+# Calculate charity care charges (bad debt + financial aid) and assign to new variable
+hospital_data_21$charity_charges_bf <- 
+  hospital_data_21$E5A + hospital_data_21$E5B1
+
+# Calculate charity care costs (cost-to-charge-ratio * (bad debt + financial assistance)) and assign to new variable
+hospital_data_21$charity_costs_bf <- 
+  hospital_data_21$charity_charges_bf * hospital_data_21$ctc_ratio
+
+# Calculate alternative measure of charity costs (cost-to-charge-ratio * financial assistance) and assign to new variable
+hospital_data_21$charity_costs_f <- 
+  hospital_data_21$E5B1 * hospital_data_21$ctc_ratio
+
+# Calculate another alternative measure of charity costs (cost-to-charge-ratio * I2C)
+hospital_data_21$charity_costs_i <- 
+  hospital_data_21$I2C * hospital_data_21$ctc_ratio
+
+```
+
+
+```{r}
+# Rename column names
+hospital_data_21 <- hospital_data_21 %>% rename(
+  "Other_Operating_Revenue" = E3C1,
+  "Total_Expenses_less_bad_debt" = E3M1,
+  "Total_Gross_Inpatient_Revenue"  = E4A1,
+  "Total_Gross_Outpatien_Revenue" = E4B1,
+  "Total_Gross_Patient_Revenue" = E4C1,
+  "Bad_Debt" = E5A,
+  "Financial_Assistance" = E5B1,
+  "Charity_Charges_I2C" = I2C,
+  "YEAR" = YEAR.x)
+
+```
+
+
+```{r}
+# Subset data to only keep variables we need
+hospital_data_21_subset <- hospital_data_21 %>% 
+  select(YEAR,
+         FID,
+         FACILITY,
+         LOCOZIP,
+         COUNTY, 
+         STATE,
+         Other_Operating_Revenue,
+         Total_Expenses_less_bad_debt,
+         Total_Gross_Inpatient_Revenue,
+         Total_Gross_Outpatien_Revenue,
+         Total_Gross_Patient_Revenue,
+         Bad_Debt, 
+         Financial_Assistance,
+         ctc_ratio, 
+         Charity_Charges_I2C,
+         charity_charges_bf, 
+         charity_costs_bf,
+         charity_costs_f,
+         charity_costs_i)
+
+
+# Print the first few rows of the new data frame
+head(hospital_data_21_subset)
+
+
+```
+
+
+```{r}
+#Create excel file with new variables 
+
+library(writexl)
+write_xlsx(hospital_data_21_subset,"Dallas County Charity Care Costs 2021 AHA_DSHS.xlsx")
+
+```
